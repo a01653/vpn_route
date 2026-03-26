@@ -16,6 +16,7 @@ Aplica una configuración inicial de rutas para separar el tráfico: Internet sa
 
 **Incluye**
 
+* `INICIO.bat`: lanzador para crear un acceso directo y ejecutar la aplicación con permisos elevados.
 * `FINAL.ps1`: aplica la configuración inicial y arranca la supervisión.
 * `reaplicar_loop.ps1`: vigila y reaplica las rutas automáticamente.
 * `estado_vpn.ps1`: muestra el estado actual.
@@ -24,12 +25,13 @@ Aplica una configuración inicial de rutas para separar el tráfico: Internet sa
 **Manual de uso**
 
 1. Copiar todos los ficheros del proyecto en `C:\temp\vpn`.
-2. Conectar la VPN.
-3. Ejecutar `FINAL.ps1` con PowerShell.
-4. El script detectará la interfaz local válida y aplicará las rutas necesarias.
-5. A partir de ese momento quedará activo un proceso en segundo plano que vigila cambios en la tabla de enrutamiento.
-6. Para comprobar el estado, ejecutar `estado_vpn.ps1`.
-7. Para detener la supervisión, ejecutar `detener_loop.ps1`.
+2. Crear un acceso directo a `INICIO.bat` en el lugar que se desee.
+3. Usar ese acceso directo para iniciar la aplicación con permisos elevados.
+4. Conectar la VPN.
+5. Ejecutar `INICIO.bat`, que lanzará el proceso necesario con privilegios de administrador.
+6. El script aplicará la configuración inicial de rutas y dejará activa la supervisión en segundo plano.
+7. Para comprobar el estado, ejecutar `estado_vpn.ps1`.
+8. Para detener la supervisión, ejecutar `detener_loop.ps1`.
 
 **Resultado esperado**
 
@@ -39,4 +41,6 @@ Aplica una configuración inicial de rutas para separar el tráfico: Internet sa
 
 **Importante**
 
-Está pensado para Windows con PowerShell y debe ajustarse a las subredes internas reales de cada entorno.
+* La aplicación debe mantenerse en `C:\temp\vpn`.
+* La ejecución requiere permisos de administrador.
+* Está pensada para Windows con PowerShell y debe ajustarse a las subredes internas reales de cada entorno.
