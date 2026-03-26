@@ -1,7 +1,9 @@
 **Descripción**
+
 VPN Route es una utilidad en PowerShell para Windows que corrige automáticamente la tabla de enrutamiento cuando una VPN cambia las rutas por defecto del sistema. Su objetivo es mantener el acceso a Internet por la conexión local, sin perder la conectividad hacia las redes internas que deben seguir pasando por la VPN.
 
 **Qué hace**
+
 La herramienta aplica una configuración inicial de rutas para separar el tráfico: Internet sale por la red local y las subredes corporativas continúan por la VPN. Después deja un proceso de supervisión en segundo plano que revisa periódicamente la tabla de rutas y, si la VPN la modifica, restaura automáticamente la configuración prevista.
 
 **Incluye**
