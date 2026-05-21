@@ -14,12 +14,80 @@ function Get-MaskFromPrefix($prefixLen) {
     return [IPAddress]::new($maskBytes).ToString()
 }
 
+function Get-Ipv4DnsServers {
+    param([int]$InterfaceIndex)
+
+    try {
+        return @(
+            (Get-DnsClientServerAddress -InterfaceIndex $InterfaceIndex -AddressFamily IPv4 -ErrorAction Stop).ServerAddresses |
+            Where-Object { $_ }
+        )
+    } catch {
+        return @()
+    }
+}
+
+function Save-ReapplyState {
+    param(
+      [string]$Path,
+      [int]$LanIfIndex,
+      [string]$LanName,
+      [string[]]$DesiredDnsServersIPv4,
+      [bool]$ManageVpnDns = $false
+    )
+
+    $payload = [pscustomobject]@{
+        SavedAt               = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        SelectedLanIfIndex    = $LanIfIndex
+        SelectedLanName       = $LanName
+        ManageVpnDns          = $ManageVpnDns
+        DesiredDnsServersIPv4 = @($DesiredDnsServersIPv4)
+    }
+
+    $payload | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Set-Ipv4DnsServers {
+    param(
+      [int[]]$InterfaceIndexes,
+      [string[]]$DnsServers
+    )
+
+    $targets = @($InterfaceIndexes | Where-Object { $_ } | Sort-Object -Unique)
+    $desired = @($DnsServers | Where-Object { $_ })
+
+    if (-not $targets) {
+        return
+    }
+
+    if (-not $desired) {
+        Write-Host "DNS de referencia no detectados. No se fuerzan DNS en la VPN." -ForegroundColor Yellow
+        return
+    }
+
+    foreach ($ifIndex in $targets) {
+        $current = Get-Ipv4DnsServers -InterfaceIndex $ifIndex
+        if ((@($current) -join ',') -eq (@($desired) -join ',')) {
+            Write-Host "DNS ya correctos en if=$ifIndex -> $($desired -join ', ')" -ForegroundColor DarkGray
+            continue
+        }
+
+        try {
+            Set-DnsClientServerAddress -InterfaceIndex $ifIndex -ServerAddresses $desired -ErrorAction Stop
+            Write-Host "DNS aplicados en if=$ifIndex -> $($desired -join ', ')" -ForegroundColor Cyan
+        } catch {
+            Write-Host "No se pudieron aplicar DNS en if=${ifIndex}: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+}
+
 # --- Ruta y nombres del script / bat ---
 $psScriptPath = $PSCommandPath
 $psScriptName = [System.IO.Path]::GetFileNameWithoutExtension($psScriptPath)
 $psScriptDir  = [System.IO.Path]::GetDirectoryName($psScriptPath)
 
 $batFilePath  = "$psScriptDir\$psScriptName.bat"
+$stateFilePath = Join-Path $psScriptDir 'reaplicar_state.json'
 
 
 # Crear o LIMPIAR el .bat sin dejarlo abierto
@@ -85,6 +153,21 @@ if (-not $lan) {
 $lanIP = $lan.IPv4
 $lanGW = $lan.Gateway
 Write-Host "LAN -> idx=$lanIdx, IP=$lanIP, Gateway=$lanGW" -ForegroundColor Green
+
+$manageVpnDns = $false
+$desiredDnsServers = Get-Ipv4DnsServers -InterfaceIndex $lanIdx
+if ($desiredDnsServers) {
+    Write-Host "DNS LAN de referencia -> $($desiredDnsServers -join ', ')" -ForegroundColor Green
+} else {
+    Write-Host "DNS LAN de referencia -> no detectados" -ForegroundColor Yellow
+}
+
+Save-ReapplyState -Path $stateFilePath -LanIfIndex $lanIdx -LanName $lan.Name -DesiredDnsServersIPv4 $desiredDnsServers -ManageVpnDns $manageVpnDns
+if ($manageVpnDns) {
+    Set-Ipv4DnsServers -InterfaceIndexes @($vpnIdx) -DnsServers $desiredDnsServers
+} else {
+    Write-Host "Gestión de DNS VPN desactivada. Se conservan solo las rutas." -ForegroundColor Yellow
+}
 
 # --- 3) Helper para emitir add/change en el .bat ---
 function EmitRoute {
@@ -195,7 +278,7 @@ if ($running) {
 Write-Host "Iniciando bucle de reaplicación en segundo plano..." -ForegroundColor Cyan
 $psExe = (Get-Command powershell).Source
 $pLoop = Start-Process -FilePath $psExe `
-    -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File",$loopScript,"-StopTime","16:00" `
+    -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File",$loopScript,"-StopTime","16:00","-StatePath",$stateFilePath `
     -WorkingDirectory (Split-Path $loopScript -Parent) `
     -WindowStyle Hidden `
     -PassThru
@@ -206,7 +289,7 @@ if (Get-Process -Id $pLoop.Id -ErrorAction SilentlyContinue) {
     Write-Host "Bucle lanzado correctamente. PID=$($pLoop.Id)" -ForegroundColor Green
 } else {
     Write-Host "ERROR: el proceso del bucle arrancó y murió al instante." -ForegroundColor Red
-    Write-Host "Prueba manual: powershell -NoProfile -ExecutionPolicy Bypass -File $loopScript -StopTime 16:00" -ForegroundColor Yellow
+    Write-Host "Prueba manual: powershell -NoProfile -ExecutionPolicy Bypass -File $loopScript -StopTime 16:00 -StatePath $stateFilePath" -ForegroundColor Yellow
 }
 
 Write-Host "`nEl script ha terminado. El bucle de reaplicación se detendrá automáticamente a las 16:00." -ForegroundColor Yellow

@@ -7,21 +7,72 @@
 
 param(
   [string]$LoopPath = 'C:\temp\vpn\reaplicar_loop.ps1',
+  [string]$RuntimePath = 'C:\temp\vpn\reaplicar_runtime.json',
   [string]$DefaultStopTime = '16:00'
 )
 
+function Get-LoopRuntimeInfo {
+    param(
+      [string]$RuntimeFile,
+      [string]$FallbackLoopPath
+    )
+
+    if (Test-Path $RuntimeFile) {
+        try {
+            $runtime = Get-Content -LiteralPath $RuntimeFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $proc = Get-Process -Id ([int]$runtime.Pid) -ErrorAction SilentlyContinue
+            if ($proc) {
+                $stopValue = if ($runtime.StopTime) { [string]$runtime.StopTime } else { $DefaultStopTime }
+                $startValue = if ($runtime.StartedAt) { [datetime]$runtime.StartedAt } else { $proc.StartTime }
+                return [pscustomobject]@{
+                    Found       = $true
+                    Pid         = [int]$runtime.Pid
+                    Start       = $startValue
+                    StopTime    = $stopValue
+                    Source      = 'runtime'
+                    CommandLine = $FallbackLoopPath
+                }
+            }
+        } catch {}
+    }
+
+    try {
+        $procs = Get-WmiObject Win32_Process -ErrorAction Stop |
+          Where-Object { $_.CommandLine -match [Regex]::Escape($FallbackLoopPath) }
+
+        if ($procs) {
+            $proc = $procs | Sort-Object CreationDate -Descending | Select-Object -First 1
+            $stopMatch = [regex]::Match($proc.CommandLine, '-StopTime\s+"?([0-9]{1,2}:[0-9]{2})"?')
+            $stopValue = if ($stopMatch.Success) { $stopMatch.Groups[1].Value } else { $DefaultStopTime }
+
+            return [pscustomobject]@{
+                Found       = $true
+                Pid         = [int]$proc.ProcessId
+                Start       = ([Management.ManagementDateTimeConverter]::ToDateTime($proc.CreationDate))
+                StopTime    = $stopValue
+                Source      = 'wmi'
+                CommandLine = $proc.CommandLine
+            }
+        }
+    } catch {}
+
+    return [pscustomobject]@{
+        Found    = $false
+        Pid      = 0
+        Start    = $null
+        StopTime = $DefaultStopTime
+        Source   = 'none'
+    }
+}
+
 # 1) ¿Está corriendo el bucle?
-$procs = Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -match [Regex]::Escape($LoopPath) }
+$loopInfo = Get-LoopRuntimeInfo -RuntimeFile $RuntimePath -FallbackLoopPath $LoopPath
 
-if ($procs) {
-    $proc = $procs | Sort-Object CreationDate -Descending | Select-Object -First 1
-    $loopPid = [int]$proc.ProcessId
-    $start   = ([Management.ManagementDateTimeConverter]::ToDateTime($proc.CreationDate))
+if ($loopInfo.Found) {
+    $loopPid = $loopInfo.Pid
+    $start   = $loopInfo.Start
 
-    $stopMatch = [regex]::Match($proc.CommandLine, '-StopTime\s+"?([0-9]{1,2}:[0-9]{2})"?')
-    $stopStr   = $(if ($stopMatch.Success) { $stopMatch.Groups[1].Value } else { $DefaultStopTime })
-
-    $todayStop = [datetime]::Today.Add([timespan]::Parse($stopStr))
+    $todayStop = [datetime]::Today.Add([timespan]::Parse($loopInfo.StopTime))
     if ((Get-Date) -ge $todayStop) { $todayStop = $todayStop.AddDays(1) }
 
     Write-Host "Estado:    ACTIVO ✅" -ForegroundColor Green
@@ -55,7 +106,7 @@ try {
 
         # Métricas totales con cmdlets (ruta + interfaz)
         try {
-            $defRoutes = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue
+            $defRoutes = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction Stop
             $lanRoute  = $defRoutes | Where-Object { $_.NextHop -and $_.NextHop -ne '0.0.0.0' } | Sort-Object RouteMetric | Select-Object -First 1
             $vpnRoute  = $defRoutes | Where-Object { $_.NextHop -eq '0.0.0.0' } | Sort-Object RouteMetric | Select-Object -First 1
 
@@ -76,7 +127,7 @@ try {
                 Write-Host "Estado ruta por defecto: NO VÁLIDA ❌ (solo on-link / En vínculo)" -ForegroundColor Red
             }
         } catch {
-            Write-Host "No se pudieron obtener métricas: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "No se pudo obtener el estado detallado de métricas: $($_.Exception.Message)" -ForegroundColor Yellow
         }
     }
 } catch {

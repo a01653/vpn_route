@@ -4,3 +4,7 @@
 FINAL.bat
 /.tmp.drivedownload
 node_modules
+reaplicar_state.json
+reaplicar_runtime.json
+reaplicar_loop.stop
+registry_backups/
