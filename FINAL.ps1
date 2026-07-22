@@ -3,6 +3,17 @@
 # ================================
 
 
+# Las rutas requieren privilegios de administrador. Sin esta comprobacion el
+# .bat y el bucle posterior fallaban silenciosamente con "requiere elevacion".
+$principal = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+$isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdministrator) {
+    Write-Host 'Solicitando permisos de administrador para aplicar las rutas VPN...' -ForegroundColor Yellow
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    Start-Process -FilePath (Get-Command powershell.exe).Source -Verb RunAs -ArgumentList $arguments
+    exit
+}
+
 # --- Utilidades ---
 function Get-MaskFromPrefix($prefixLen) {
     $p = [int]$prefixLen

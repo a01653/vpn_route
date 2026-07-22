@@ -19,6 +19,11 @@ $VpnInternalPrefixes = @(
   '10.140.0.0/16'
 )
 
+function Test-IsAdministrator {
+    $principal = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Rotate-Log {
     param([string]$Path, [int]$Days)
     try {
@@ -82,8 +87,12 @@ function Remove-RuntimeState {
 }
 
 function Invoke-RouteCmd([string]$Cmd) {
-    $p = Start-Process -FilePath 'cmd.exe' -ArgumentList "/c $Cmd" -WindowStyle Hidden -PassThru -Wait
-    return $p.ExitCode
+    # route.exe puede fallar sin lanzar una excepcion de PowerShell.
+    $output = @(& cmd.exe /c $Cmd 2>&1 | ForEach-Object { $_.ToString() })
+    return [pscustomobject]@{
+        ExitCode = $LASTEXITCODE
+        Output   = ($output -join ' ').Trim()
+    }
 }
 
 function Get-MaskFromPrefix($prefixLen) {
@@ -330,7 +339,14 @@ function Ensure-Route {
     }
 
     if ($Metric -ne $null) { $cmd += " metric $Metric" }
-    [void](Invoke-RouteCmd $cmd)
+    $result = Invoke-RouteCmd $cmd
+    if ($result.ExitCode -ne 0) {
+        $detail = if ($result.Output) { ": $($result.Output)" } else { '' }
+        Write-Log "ERROR aplicando ruta [$cmd] (ExitCode=$($result.ExitCode))$detail"
+        return $false
+    }
+
+    return $true
 }
 
 function Repair-Routes {
@@ -341,12 +357,14 @@ function Repair-Routes {
       [string[]]$MissingVpnPrefixes = @()
     )
 
-    Ensure-Route -Prefix '0.0.0.0/0' -IfIndex $LanIfIndex -Gateway $LanGateway -Metric $LanRouteMetric
-    Ensure-Route -Prefix '0.0.0.0/0' -IfIndex $VpnIfIndex -Gateway '0.0.0.0' -Metric $VpnRouteMetric
+    $ok = Ensure-Route -Prefix '0.0.0.0/0' -IfIndex $LanIfIndex -Gateway $LanGateway -Metric $LanRouteMetric
+    $ok = (Ensure-Route -Prefix '0.0.0.0/0' -IfIndex $VpnIfIndex -Gateway '0.0.0.0' -Metric $VpnRouteMetric) -and $ok
 
     foreach ($prefix in @($MissingVpnPrefixes | Where-Object { $_ })) {
-        Ensure-Route -Prefix $prefix -IfIndex $VpnIfIndex -Gateway '0.0.0.0'
+        $ok = (Ensure-Route -Prefix $prefix -IfIndex $VpnIfIndex -Gateway '0.0.0.0') -and $ok
     }
+
+    return $ok
 }
 
 function Repair-Dns {
@@ -388,6 +406,10 @@ if (-not (Test-Path $LogPath)) {
 }
 
 Rotate-Log -Path $LogPath -Days $LogRetentionDays
+if (-not (Test-IsAdministrator)) {
+    Write-Log 'ERROR: el bucle no tiene permisos de administrador. Finaliza para no simular reparaciones fallidas.'
+    exit 1
+}
 Remove-Item -LiteralPath $StopSignalPath -Force -ErrorAction SilentlyContinue
 Write-RuntimeState -Path $RuntimePath -StopTimeValue $StopTime -StateFilePath $StatePath -StopFilePath $StopSignalPath
 Write-Log "Script iniciado (PID=$PID, StopTime=$StopTime, Interval=${Interval}s)"
@@ -428,8 +450,7 @@ while ((Get-Date) -lt $todayStop) {
             if (-not $routeState.Ok) {
                 if ($routeState.Repairable -and $routeState.LanIfIndex -and $routeState.LanGateway -and $routeState.VpnIfIndex) {
                     Write-Log "Cambio detectado / rutas incorrectas: $($routeState.Reason). Reaplicando rutas por defecto."
-                    Repair-Routes -LanIfIndex $routeState.LanIfIndex -LanGateway $routeState.LanGateway -VpnIfIndex $routeState.VpnIfIndex -MissingVpnPrefixes $routeState.MissingVpnPrefixes
-                    $repaired = $true
+                    $repaired = Repair-Routes -LanIfIndex $routeState.LanIfIndex -LanGateway $routeState.LanGateway -VpnIfIndex $routeState.VpnIfIndex -MissingVpnPrefixes $routeState.MissingVpnPrefixes
                 } else {
                     if ($health -ne $lastHealth) {
                         Write-Log "Estado de rutas no reparable todavia: $($routeState.Reason)"
