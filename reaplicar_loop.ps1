@@ -3,7 +3,7 @@ param(
   [string]$StatePath = 'C:\temp\vpn\reaplicar_state.json',
   [string]$RuntimePath = 'C:\temp\vpn\reaplicar_runtime.json',
   [string]$StopSignalPath = 'C:\temp\vpn\reaplicar_loop.stop',
-  [string]$StopTime = '16:00',
+  [string]$StopTime = '20:00',
   [int]$Interval = 3,
   [int]$LogRetentionDays = 7,
   [int]$LanRouteMetric = 25,
@@ -322,7 +322,7 @@ function Ensure-Route {
       [string]$Prefix,
       [int]$IfIndex,
       [string]$Gateway,
-      [int]$Metric = $null
+      [Nullable[int]]$Metric = $null
     )
 
     $cidr = [int]($Prefix.Split('/')[-1])
