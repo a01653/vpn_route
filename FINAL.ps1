@@ -289,7 +289,7 @@ if ($running) {
 Write-Host "Iniciando bucle de reaplicación en segundo plano..." -ForegroundColor Cyan
 $psExe = (Get-Command powershell).Source
 $pLoop = Start-Process -FilePath $psExe `
-    -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File",$loopScript,"-StopTime","16:00","-StatePath",$stateFilePath `
+    -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File",$loopScript,"-StopTime","20:00","-StatePath",$stateFilePath `
     -WorkingDirectory (Split-Path $loopScript -Parent) `
     -WindowStyle Hidden `
     -PassThru
@@ -300,7 +300,7 @@ if (Get-Process -Id $pLoop.Id -ErrorAction SilentlyContinue) {
     Write-Host "Bucle lanzado correctamente. PID=$($pLoop.Id)" -ForegroundColor Green
 } else {
     Write-Host "ERROR: el proceso del bucle arrancó y murió al instante." -ForegroundColor Red
-    Write-Host "Prueba manual: powershell -NoProfile -ExecutionPolicy Bypass -File $loopScript -StopTime 16:00 -StatePath $stateFilePath" -ForegroundColor Yellow
+    Write-Host "Prueba manual: powershell -NoProfile -ExecutionPolicy Bypass -File $loopScript -StopTime 20:00 -StatePath $stateFilePath" -ForegroundColor Yellow
 }
 
-Write-Host "`nEl script ha terminado. El bucle de reaplicación se detendrá automáticamente a las 16:00." -ForegroundColor Yellow
+Write-Host "`nEl script ha terminado. El bucle de reaplicación se detendrá automáticamente a las 20:00." -ForegroundColor Yellow

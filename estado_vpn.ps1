@@ -8,7 +8,7 @@
 param(
   [string]$LoopPath = 'C:\temp\vpn\reaplicar_loop.ps1',
   [string]$RuntimePath = 'C:\temp\vpn\reaplicar_runtime.json',
-  [string]$DefaultStopTime = '16:00'
+  [string]$DefaultStopTime = '20:00'
 )
 
 function Get-LoopRuntimeInfo {
